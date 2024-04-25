@@ -11,3 +11,20 @@ Input: Voice_EGG.wav
 Output: VRP.csv
 '''
 
+import numpy as np
+import librosa
+
+def create_VRP_from_Voice_EGG(signal, sr):
+    # first channel is audio, second channel is EGG
+    voice = signal[:, 0]
+    EGG = signal[:, 1]
+
+    # process the voice signal
+    voice_metrics = get_audio_metrics(voice, sr)
+
+    # process the EGG signal
+    EGG_metrics = get_EGG_metrics(EGG, sr)
+
+    # combine the voice and EGG metrics, check
+
+

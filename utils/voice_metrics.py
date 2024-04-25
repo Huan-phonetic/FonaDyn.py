@@ -1,5 +1,6 @@
 '''
-For each time segment in audio, compute CPPs, crest factors, Spectrum Balance, SPL and F0
+Fixed time frame(23ms): F0/clarity, CPPs, Spectrum Balance
+Cycle: SPL, crest factors
 '''
 
 import numpy as np
@@ -11,6 +12,7 @@ import matplotlib.pyplot as plt
 import librosa
 from scipy.signal import butter, sosfilt
 from scipy import stats
+from cycle_picker import get_cycles
 
 
 def autocorrelation(signal, n, k):
@@ -31,9 +33,7 @@ def get_audio_metrics(signal, sr, n=4096, overlap=2048):
     window = np.hanning(n)
     k = n // 2  # k as n/2
     frequencies = []
-    SPLs = []
     clarities = []
-    crests = []
     CPPs = []
     SBs = []
     times = []
@@ -43,32 +43,64 @@ def get_audio_metrics(signal, sr, n=4096, overlap=2048):
         segment = signal[start:start + n]
         windowed_segment = segment * window
 
-        f0, clarity = find_f0(windowed_segment, sr, n, k)
-        SPL = find_SPL(windowed_segment, sr)
-        crest = find_crest_factor(windowed_segment)
+        f0, clarity = find_f0(windowed_segment, sr, n, k, threshold=0.93, midi=True)
         CPP = find_CPPs(windowed_segment, sr)
         SB = find_SB(windowed_segment, sr)
 
         frequencies.append(f0)
-        SPLs.append(SPL)
         times.append(start / sr)
         clarities.append(clarity)
-        crests.append(crest)
         CPPs.append(CPP)
         SBs.append(SB)
     
+    periods = get_cycles(signal, height=0.004, distance=64, prominence=0.005)
+    # SPL and crest factor are calculated for each period
+    SPLs = []
+    crests = []
+    for start, end in periods:
+        segment = signal[start:end]
+        SPL = find_SPL(segment)
+        crest = find_crest_factor(segment)
+        SPLs.append(SPL)
+        crests.append(crest)
+
+    sampled_SPLs = period_downsampling(SPLs, periods, times)
+    sampled_clarities = period_downsampling(crests, periods, times)
+
+    # Convert lists to numpy arrays
+    frequencies = np.array(frequencies)
+    sampled_SPLs = np.array(sampled_SPLs)
+    times = np.array(times)
+    clarities = np.array(clarities)
+    sampled_clarities = np.array(sampled_clarities)
+    CPPs = np.array(CPPs)
+    SBs = np.array(SBs)
+
+    # Create a mask for valid data points
+    valid_mask = (frequencies != 0) & (sampled_SPLs != 0)
+
+    # Filter data using the valid_mask
+    frequencies = frequencies[valid_mask]
+    sampled_SPLs = sampled_SPLs[valid_mask]
+    times = times[valid_mask]
+    clarities = clarities[valid_mask]
+    sampled_clarities = sampled_clarities[valid_mask]
+    CPPs = CPPs[valid_mask]
+    SBs = SBs[valid_mask]
+
     # return a dictionary of the metrics
     return {
         'frequencies': frequencies,
-        'SPLs': SPLs,
+        'SPLs': sampled_SPLs,
         'times': times,
+        'periods': periods,
         'clarities': clarities,
-        'crests': crests,
+        'crests': sampled_clarities,
         'CPPs': CPPs,
         'SBs': SBs        
     }
 
-def find_f0(windowed_segment, sr, n, k):
+def find_f0(windowed_segment, sr, n, k,threshold=0.93, midi=False):
     acorr = autocorrelation(windowed_segment, n, k)
     # Normalize the autocorrelation
     acorr /= acorr[0]  # Normalize by zero-lag
@@ -82,26 +114,82 @@ def find_f0(windowed_segment, sr, n, k):
         max_index = np.argmax(heights)
         peak = peaks[max_index]
         confidence = heights[max_index]
-        if confidence > 0.93:
+        if confidence > threshold:
             frequency = sr / peak
             if frequency > 1000:
                 frequency = 0
+                confidence = 0
+            elif midi:
+                frequency = 69 + 12 * np.log2(frequency / 440)
             return frequency, confidence
         else:
             return 0, 0
     else:
         return 0, 0
+
+def find_SPL(signal, reference=20e-6):
+    signal = signal/32767 * 20
+    rms = np.sqrt(np.mean(signal**2))
+    spl = 20 * np.log10(rms / reference)
+    return spl
+
     
-def find_SPL(windowed_segment, sr):
-    RMS_ref = 0.05  # for a sine wave at 1 Pa
-    rms = np.sqrt(np.mean(windowed_segment**2))
-    SPL = 20 * np.log10(rms / RMS_ref) + 94
-    return SPL
-    
-def find_crest_factor(windowed_segment):
-    rms = np.sqrt(np.mean(windowed_segment**2))
-    peak = np.max(np.abs(windowed_segment))
+def find_crest_factor(signal):
+    rms = np.sqrt(np.mean(signal**2))
+    peak = np.max(np.abs(signal))
     return peak / rms
+
+# def period_downsampling(metric, periods, times, frame_size=2024):
+#     # Initialize an array to store the mean SPL values for each time frame
+#     sampled_metrics = np.zeros(len(times))
+    
+#     # Iterate over each time frame based on the times array
+#     for i, time in enumerate(times):
+#         # Define the start and end samples for the current time frame
+#         frame_start = time * 44100
+#         frame_end = time * 44100 + frame_size
+        
+#         # List to hold SPL values for periods within the current frame
+#         period_metrics = []
+
+#         for j, [start, end] in enumerate(periods):
+#             if start >= frame_start and end <= frame_end:
+#                 period_metrics.append(metric[j])
+
+#         # Calculate the mean SPL for the current time frame
+#         if len(period_metrics) > 0:
+#             sampled_metrics[i] = np.mean(period_metrics)
+#         else:
+#             sampled_metrics[i] = 0
+
+#     return sampled_metrics
+
+def period_downsampling(metric, periods, times, frame_size=2024, sample_rate=44100):
+    # Calculate the start and end samples for each time frame
+    frames_start = np.array(times) * sample_rate
+    frames_end = frames_start + frame_size
+
+    # Convert periods to a NumPy array for vectorized operations
+    periods = np.array(periods)
+    metric = np.array(metric)
+
+    # Initialize an array to store the mean SPL values for each time frame
+    sampled_metrics = np.zeros(len(times))
+
+    # Find indices where periods fit within the time frames
+    period_indices = np.logical_and(
+        periods[:, None, 0] >= frames_start,
+        periods[:, None, 1] <= frames_end
+    )
+
+    # Calculate the mean SPL for each time frame
+    # using the identified indices
+    for i, (start, end) in enumerate(zip(frames_start, frames_end)):
+        in_frame_periods = metric[period_indices[:, i]]
+        if in_frame_periods.size > 0:
+            sampled_metrics[i] = np.mean(in_frame_periods)
+
+    return sampled_metrics
 
 def find_CPPs(windowed_segment, sr):
     # Step 1: Perform initial FFT on the windowed segment
@@ -166,9 +254,11 @@ def find_SB(windowed_segment, sr):
 # Example usage:
 def main():
     audio_file = 'audio/test_Voice_EGG.wav'
-    signal, sr = librosa.load(audio_file, sr=44100, mono=True)
+    sr, signal = wavfile.read(audio_file)
+    signal = signal[:, 0]
 
     audio_metrics = get_audio_metrics(signal, sr)
+    print('Successfully extracted audio metrics!')
     # plot scatter frequency at x-axis and SPL at y-axis
     plt.scatter(audio_metrics['frequencies'], audio_metrics['SPLs'])
     plt.xlabel('Frequency (Hz)')
