@@ -12,26 +12,40 @@ import librosa
 from scipy.signal import butter, sosfilt
 from scipy import stats
 from cycle_picker import get_cycles
-from EGG_preprocess import process_EGG_signal
+from EGG_process import process_EGG_signal
 from scipy.fft import fft, fftfreq
+import nolds
 
-def find_CSE(EGG, sr):
-    pass
+def find_CSE(EGG):
+    CSE = nolds.sampen(EGG, emb_dim=2)
+    return CSE
 
-def find_qci(EGG, sr):
+def find_qci(EGG):
     unit = unit_EGG(EGG)
     # qci is the area under the curve of the unit EGG signal
     qci = np.trapz(unit[1], unit[0])
     return qci
 
-def find_dEGGmax(EGG, sr):
-    '''
-    Input: EGG signal
-    Output: maximum slop of EGG signal
-    '''
-    EGG_diff = np.diff(EGG)
-    dEGGmax = np.max(EGG_diff)
-    return dEGGmax
+def find_dEGGmax(signal):
+    scaled_signal = signal * 32767
+    rounded_signal = np.round(scaled_signal).astype(np.int16)
+
+    # Assuming signal is a 1D numpy array containing the discretized a(t)
+    period_length_T = len(rounded_signal)
+    # Find the largest positive difference dmax over the period
+    # We use np.diff to compute the difference between consecutive samples
+    # and then find the maximum
+    dmax = np.max(np.abs(np.diff(rounded_signal)))
+
+    # plot the diff
+    plt.plot(np.diff(rounded_signal))
+    
+    # Assuming a sinusoidal waveform with peak-to-peak amplitude Ap-p = 2
+    # and the given formula for QD
+    Ap_p = np.max(rounded_signal) - np.min(rounded_signal)
+    QD = 2 * dmax / (Ap_p * np.sin(2 * np.pi / period_length_T))
+    
+    return QD
 
 def find_Ic(Qci, QDelta):
     # Check for positive QDelta to avoid mathematical error in logarithm
@@ -42,7 +56,7 @@ def find_Ic(Qci, QDelta):
     Ic = Qci * np.log10(QDelta)
     return Ic
 
-def find_speedquotient(EGG, sr):
+def find_speedquotient(EGG):
     '''
     Input: EGG signal
     Output: speed quotient of EGG signal
@@ -51,7 +65,7 @@ def find_speedquotient(EGG, sr):
     speedquotient = np.sum(np.abs(EGG_diff)) / np.sum(np.abs(EGG))
     return speedquotient
 
-def find_openquotient(EGG, sr):
+def find_openquotient(EGG):
     '''
     Input: EGG signal
     Output: open quotient of EGG signal
@@ -60,7 +74,7 @@ def find_openquotient(EGG, sr):
     openquotient = np.sum(EGG_diff[EGG_diff > 0]) / np.sum(EGG)
     return openquotient
 
-def find_closedquotient(EGG, sr):
+def find_closedquotient(EGG):
     '''
     Input: EGG signal
     Output: closed quotient of EGG signal
@@ -69,7 +83,7 @@ def find_closedquotient(EGG, sr):
     closedquotient = np.sum(EGG_diff[EGG_diff < 0]) / np.sum(EGG)
     return closedquotient
 
-def find_contactquotient(EGG, sr):
+def find_contactquotient(EGG):
     '''
     Input: EGG signal
     Output: contact quotient of EGG signal
@@ -78,7 +92,7 @@ def find_contactquotient(EGG, sr):
     contactquotient = np.sum(np.abs(EGG_diff)) / np.sum(EGG)
     return contactquotient
 
-def find_dEGG(EGG, sr):
+def find_dEGG(EGG):
     '''
     Input: EGG signal
     Output: dEGG of EGG signal
@@ -139,24 +153,13 @@ def main():
     sr, signal = wavfile.read(audio_file)
     signal = signal[:, 1]
     signal = process_EGG_signal(signal, sr)
-    periods = get_cycles(signal, height=40, distance=64, prominence=0.5)
+    # segments = get_cycles(signal, EGG=True)
+    CSE = find_CSE(signal)
+    print(CSE)
+    plt.plot(signal)
+    plt.show()
 
-    # # plot periods
-    # plt.figure(figsize=(10, 4))
-    # plt.plot(signal)
-    # for start, end in periods:
-    #     plt.axvline(x=start, color='red')
-    #     plt.axvline(x=end, color='green')
-    # print(periods)
-    # plt.show()
 
-    # # plot each cycle
-    for start, end in periods:
-        cycle = signal[start:end]
-        time, amplitude = unit_EGG(cycle)
-        plt.figure(figsize=(4, 4))
-        plt.plot(time, amplitude)
-        plt.show()
 
 
 if __name__ == '__main__':

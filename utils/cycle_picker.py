@@ -8,27 +8,37 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 import librosa
+from scipy.io import wavfile
 
-def get_cycles(signal, height=None, distance=None, prominence=None):
-    def find_zero_crossings(signal):
-        # Find zero crossings
-        zero_crossings = np.where(np.diff(np.sign(signal)))[0]
-        return zero_crossings
-    
+def get_cycles(signal, samplerate, EGG=True): 
+    '''
+    Input: signal, EGG=True if the signal is EGG, False if the signal is voice
+    Output: segments, a list of tuples, each tuple contains the start and end index of a cycle
+
+    Note: for audio signal, the best parameters have not been found yet, the current parameters are for EGG signal
+    Note2: the current parameters are for Librosa.load
+    '''
+
     # differenciated signal
     signal = np.diff(signal)
+    if EGG:
+        height_p=0.004
+        distance_p=64
+        prominence_p=0.005
+        height_n=0.004
+        distance_n=64
+        prominence_n=0.005
+    else:
+        height_p = 3
+        distance_p = 140
+        prominence_p = 5
+        height_n = 3
+        distance_n = 140
+        prominence_n = 2
 
-    # Find positive peaks
-    positive_peaks, _ = find_peaks(signal, height=height, distance=distance, prominence=prominence)
-    # Find negative peaks by inverting the signal
-    negative_peaks, _ = find_peaks(-signal, height=height, distance=distance, prominence=prominence)
-
-    # plt.figure(figsize=(10, 4))
-    # plt.plot(signal, label='Signal')
-    # plt.scatter(positive_peaks, signal[positive_peaks], color='red', label='Positive peaks')
-    # plt.scatter(negative_peaks, signal[negative_peaks], color='green', label='Negative peaks')
-    # plt.legend()
-    # plt.show()
+    # Find peaks
+    positive_peaks, _ = find_peaks(signal, height=height_p, distance=distance_p, prominence=prominence_p)
+    negative_peaks, _ = find_peaks(-signal, height=height_n, distance=distance_n, prominence=prominence_n)
 
     # period accepts only one positive peak followed by one negative peak, the boundaries are defined by the three crossings
     peaks = []
@@ -41,7 +51,7 @@ def get_cycles(signal, height=None, distance=None, prominence=None):
     starts = []
     ends = []
     segments = []
-    zero_crossings = find_zero_crossings(signal)
+    zero_crossings = np.where(np.diff(np.sign(signal)))[0]
     
     for p, n in peaks:
         # Find the zero crossing before the positive peak
@@ -58,24 +68,32 @@ def get_cycles(signal, height=None, distance=None, prominence=None):
     for i in range(len(starts)-1):
         start = starts[i]
         end = starts[i+1]
-        if end - start < 0.02 * 44100 and end - start > 0.00023 * 44100:
+        if end - start < 0.02 * samplerate and end - start > 0.00023 * samplerate:
             segments.append((start, end))
-    return segments
+    return segments, starts
 
 
 # Example usage:
 def main():
     
     audio_file = 'audio/test_Voice_EGG.wav'
-    signal, sr = librosa.load(audio_file, sr=44100, mono=True)
-    segments = get_cycles(signal, height=0.004, distance=64, prominence=0.005)
+    signal, sr = librosa.load(audio_file, sr=44100, mono=False)
+    signal = signal[0]
+    signal = signal[:44100]
+    # EGG picker parameters, using librosa.load
+    segments = get_cycles(signal, EGG=True)
+    # sr, signal = wavfile.read(audio_file)
+    # signal = signal[:, 0]
+    # # choose the last second of the signal
+    # signal = signal[:44100]
+    # segments = get_cycles(signal, EGG=False)
 
     # Plotting the results
     plt.figure(figsize=(10, 4))
     plt.plot(signal, label='Signal')
     for start, end in segments:
         plt.axvline(start, color='red', linestyle='--')
-        # plt.axvline(end, color='green', linestyle='--')
+        # plt.axvline(end, color='blue', linestyle='--')
     plt.legend()
 
     plt.show()

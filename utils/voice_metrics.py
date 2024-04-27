@@ -53,7 +53,7 @@ def get_audio_metrics(signal, sr, n=4096, overlap=2048):
         CPPs.append(CPP)
         SBs.append(SB)
     
-    periods = get_cycles(signal, height=0.004, distance=64, prominence=0.005)
+    periods = get_cycles(signal, 44100)
     # SPL and crest factor are calculated for each period
     SPLs = []
     crests = []
@@ -65,14 +65,14 @@ def get_audio_metrics(signal, sr, n=4096, overlap=2048):
         crests.append(crest)
 
     sampled_SPLs = period_downsampling(SPLs, periods, times)
-    sampled_clarities = period_downsampling(crests, periods, times)
+    sampled_crests = period_downsampling(crests, periods, times)
 
     # Convert lists to numpy arrays
     frequencies = np.array(frequencies)
     sampled_SPLs = np.array(sampled_SPLs)
     times = np.array(times)
     clarities = np.array(clarities)
-    sampled_clarities = np.array(sampled_clarities)
+    sampled_crests = np.array(sampled_crests)
     CPPs = np.array(CPPs)
     SBs = np.array(SBs)
 
@@ -84,7 +84,7 @@ def get_audio_metrics(signal, sr, n=4096, overlap=2048):
     sampled_SPLs = sampled_SPLs[valid_mask]
     times = times[valid_mask]
     clarities = clarities[valid_mask]
-    sampled_clarities = sampled_clarities[valid_mask]
+    sampled_crests = sampled_crests[valid_mask]
     CPPs = CPPs[valid_mask]
     SBs = SBs[valid_mask]
 
@@ -95,7 +95,7 @@ def get_audio_metrics(signal, sr, n=4096, overlap=2048):
         'times': times,
         'periods': periods,
         'clarities': clarities,
-        'crests': sampled_clarities,
+        'crests': sampled_crests,
         'CPPs': CPPs,
         'SBs': SBs        
     }
@@ -128,7 +128,7 @@ def find_f0(windowed_segment, sr, n, k,threshold=0.93, midi=False):
         return 0, 0
 
 def find_SPL(signal, reference=20e-6):
-    signal = signal/32767 * 20
+    signal = signal * 20
     rms = np.sqrt(np.mean(signal**2))
     spl = 20 * np.log10(rms / reference)
     return spl
@@ -249,6 +249,16 @@ def find_SB(windowed_segment, sr):
     SB = high_power_db - low_power_db
 
     return SB
+
+def filter_out_zeros(frequencies, SPLs):
+    # Create a mask for valid data points
+    valid_mask = (frequencies != 0) & (SPLs != 0)
+
+    # Filter data using the valid_mask
+    frequencies = frequencies[valid_mask]
+    SPLs = SPLs[valid_mask]
+
+    return frequencies, SPLs
 
 
 # Example usage:
