@@ -36,9 +36,6 @@ def find_dEGGmax(signal):
     # We use np.diff to compute the difference between consecutive samples
     # and then find the maximum
     dmax = np.max(np.abs(np.diff(rounded_signal)))
-
-    # plot the diff
-    plt.plot(np.diff(rounded_signal))
     
     # Assuming a sinusoidal waveform with peak-to-peak amplitude Ap-p = 2
     # and the given formula for QD

@@ -81,7 +81,7 @@ def main():
     signal = signal[0]
     signal = signal[:44100]
     # EGG picker parameters, using librosa.load
-    segments = get_cycles(signal, EGG=True)
+    segments = get_cycles(signal, 44100, EGG=True)
     # sr, signal = wavfile.read(audio_file)
     # signal = signal[:, 0]
     # # choose the last second of the signal

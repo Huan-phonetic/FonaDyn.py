@@ -4,6 +4,7 @@ from cycle_picker import get_cycles
 import numpy as np
 from voice_metrics import *
 from EGG_metrics import *
+import pandas as pd
 
 def get_metrics(signal, sample_rate, n=4096, overlap=2048):
     # first channel is audio, second channel is EGG
@@ -17,7 +18,7 @@ def get_metrics(signal, sample_rate, n=4096, overlap=2048):
     EGG = process_EGG_signal(EGG, sample_rate)
 
     # segment the EGG signal, this is also used for Audio signal since they are matched
-    segments = get_cycles(EGG, sample_rate)
+    segments, starts = get_cycles(EGG, sample_rate)
 
     # calculate frame based metrics
     step = n - overlap
@@ -70,24 +71,28 @@ def get_metrics(signal, sample_rate, n=4096, overlap=2048):
     sampled_crests = period_downsampling(crests, segments, times)
     sampled_qcis = period_downsampling(qcis, segments, times)
     sampled_qdeltas = period_downsampling(qdeltas, segments, times)
-    sampled_cses = period_downsampling(cses, segments, times)
+    # sampled_cses = period_downsampling(cses, segments, times)
 
     # check all metircs shapes are the same
     assert (len(sampled_SPLs) == len(sampled_crests) == len(sampled_qcis) ==
-            len(sampled_qdeltas) == len(sampled_cses) == len(times) ==
+            len(sampled_qdeltas) == len(times) ==
             len(frequencies) == len(clarities) == len(CPPs) == len(SBs))
+    
+    # total is a list of ones that has the same length as the other metrics
+    total = np.ones(len(sampled_SPLs))
 
     return {
         'times': times,
         'frequencies': frequencies,
-        'clarities': clarities,
-        'CPPs': CPPs,
-        'SBs': SBs,
         'SPLs': sampled_SPLs,
+        'Total': total,
+        'clarities': clarities,
         'crests': sampled_crests,
-        'qcis': sampled_qcis,
+        'SBs': SBs,
+        'CPPs': CPPs,
         'qdeltas': sampled_qdeltas,
-        'cses': sampled_cses
+        'qcis': sampled_qcis,
+        # 'cses': sampled_cses
     }
 
 def post_process_metrics(metrics):
@@ -101,16 +106,36 @@ def post_process_metrics(metrics):
     for key in metrics:
         metrics[key] = metrics[key][valid_mask]
 
-    # Step 3: 
+    # Step 3: Merge the metrics by integers
+    merged_metrics = {}
+    for f in range(20,120):
+        for l in range(20,120):
+            mask = (metrics['frequencies'] >= f) & (metrics['frequencies'] < f+1) & (metrics['SPLs'] >= l) & (metrics['SPLs'] < l+1)
+            if np.sum(mask) > 0:
+                for key in metrics:
+                    if key not in merged_metrics:
+                        merged_metrics[key] = []
+                    masked_metrics = metrics[key][mask]
+                    merged_metrics[key].append(np.mean(masked_metrics))
+                    total_count = len(masked_metrics)
+                merged_metrics['frequencies'][-1] = f
+                merged_metrics['SPLs'][-1] = l
+                # insert new col 'Total' after SPLs
+                merged_metrics['Total'][-1] = total_count                
 
-    return metrics
+                # remove times key
+                merged_metrics.pop('times')
+
+    return merged_metrics
 
 def main():
     audio_file = 'audio/test_Voice_EGG.wav'
     signal, sr = librosa.load(audio_file, sr=44100, mono=False)
     metrics = get_metrics(signal, sr)
     metrics = post_process_metrics(metrics)
-    print(metrics)
+    # save to a csv file
+    df = pd.DataFrame(metrics)
+    df.to_csv('FonaPy.csv', index=False)
 
 if __name__ == '__main__':
 
