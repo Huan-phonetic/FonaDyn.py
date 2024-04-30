@@ -6,7 +6,7 @@ from voice_metrics import *
 from EGG_metrics import *
 import pandas as pd
 
-def get_metrics(signal, sample_rate, n=4096, overlap=2048):
+def get_metrics(signal, sample_rate, n=8096, overlap=6072):
     # first channel is audio, second channel is EGG
     voice = signal[0, :]
     EGG = signal[1, :]
@@ -29,23 +29,26 @@ def get_metrics(signal, sample_rate, n=4096, overlap=2048):
     CPPs = []
     SBs = []
     times = []
+    SPLs = []
 
     for start in range(0, len(voice) - n, step):
         segment = voice[start:start + n]
         windowed_segment = segment * window
 
-        f0, clarity = find_f0(windowed_segment, sample_rate, n, k, threshold=0.93, midi=True)
-        CPP = find_CPPs(windowed_segment, sample_rate)
+        f0, clarity = find_f0(windowed_segment, sample_rate, n, k, threshold=0.96, midi=True)
+        CPP = find_CPPs(windowed_segment, sample_rate, [60, 880])
         SB = find_SB(windowed_segment, sample_rate)
+        SPL = find_SPL(segment)
 
         frequencies.append(f0)
+        SPLs.append(SPL)
         times.append(start / sample_rate)
         clarities.append(clarity)
         CPPs.append(CPP)
         SBs.append(SB)
 
     # calculate cycle based metrics
-    SPLs = []
+
     crests = []
     qcis = []
     qdeltas = []
@@ -54,38 +57,33 @@ def get_metrics(signal, sample_rate, n=4096, overlap=2048):
     for start, end in segments:
         voice_segment = voice[start:end]
         EGG_segment = EGG[start:end]
-        SPL = find_SPL(voice_segment)
+        
         crest = find_crest_factor(voice_segment)
         qci = find_qci(EGG_segment)
         qdelta = find_dEGGmax(EGG_segment)
         # cse = find_CSE(EGG_segment)
 
-        SPLs.append(SPL)
         crests.append(crest)
         qcis.append(qci)
         qdeltas.append(qdelta)
         # cses.append(cse)
 
     # downsample the frame based metrics
-    sampled_SPLs = period_downsampling(SPLs, segments, times)
-    sampled_crests = period_downsampling(crests, segments, times)
-    sampled_qcis = period_downsampling(qcis, segments, times)
-    sampled_qdeltas = period_downsampling(qdeltas, segments, times)
-    # sampled_cses = period_downsampling(cses, segments, times)
+    sampled_crests, period_counts = period_downsampling(crests, segments, times, frame_size=2024, sample_rate=sample_rate)
+    sampled_qcis, _ = period_downsampling(qcis, segments, times, frame_size=2024, sample_rate=sample_rate)
+    sampled_qdeltas, _ = period_downsampling(qdeltas, segments, times, frame_size=2024, sample_rate=sample_rate)
+
+    
 
     # check all metircs shapes are the same
-    assert (len(sampled_SPLs) == len(sampled_crests) == len(sampled_qcis) ==
-            len(sampled_qdeltas) == len(times) ==
-            len(frequencies) == len(clarities) == len(CPPs) == len(SBs))
-    
-    # total is a list of ones that has the same length as the other metrics
-    total = np.ones(len(sampled_SPLs))
+    assert (len(SPLs) == len(sampled_crests) == len(sampled_qcis) ==
+            len(sampled_qdeltas) == len(frequencies) == len(clarities) == len(CPPs) == len(SBs))
+
 
     return {
-        'times': times,
         'frequencies': frequencies,
-        'SPLs': sampled_SPLs,
-        'Total': total,
+        'SPLs': SPLs,
+        'Total': period_counts,
         'clarities': clarities,
         'crests': sampled_crests,
         'SBs': SBs,
@@ -101,30 +99,29 @@ def post_process_metrics(metrics):
         metrics[key] = np.array(metrics[key])
 
     # Step 2: remove items with zero frequencies and zeor SPLs
-    valid_mask = (metrics['frequencies'] != 0) & (metrics['SPLs'] != 0)
+    valid_mask = (metrics['frequencies'] != 0) & (metrics['SPLs'] != 0) & (metrics['Total'] != 0)
 
     for key in metrics:
         metrics[key] = metrics[key][valid_mask]
 
     # Step 3: Merge the metrics by integers
     merged_metrics = {}
-    for f in range(20,120):
-        for l in range(20,120):
-            mask = (metrics['frequencies'] >= f) & (metrics['frequencies'] < f+1) & (metrics['SPLs'] >= l) & (metrics['SPLs'] < l+1)
+    for f in range(0, 200):
+        for spl in range(0, 200):
+            mask = (metrics['frequencies'] >= f-0.5) & (metrics['frequencies'] < f + 0.5) & \
+                   (metrics['SPLs'] >= spl-0.5) & (metrics['SPLs'] < spl + 0.5)
             if np.sum(mask) > 0:
                 for key in metrics:
                     if key not in merged_metrics:
                         merged_metrics[key] = []
                     masked_metrics = metrics[key][mask]
-                    merged_metrics[key].append(np.mean(masked_metrics))
-                    total_count = len(masked_metrics)
-                merged_metrics['frequencies'][-1] = f
-                merged_metrics['SPLs'][-1] = l
-                # insert new col 'Total' after SPLs
-                merged_metrics['Total'][-1] = total_count                
+                    if key == 'Total':
+                        merged_metrics[key].append(np.sum(masked_metrics))  # Sum for 'Total'
+                    else:
+                        merged_metrics[key].append(np.mean(masked_metrics))  # Mean for other keys
+                merged_metrics['frequencies'][-1] = f  # Store frequency bin
+                merged_metrics['SPLs'][-1] = spl        # Store SPL level bin
 
-                # remove times key
-                merged_metrics.pop('times')
 
     return merged_metrics
 

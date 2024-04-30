@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 import librosa
 from scipy.io import wavfile
+from EGG_process import process_EGG_signal
 
 def get_cycles(signal, samplerate, EGG=True): 
     '''
@@ -22,12 +23,12 @@ def get_cycles(signal, samplerate, EGG=True):
     # differenciated signal
     signal = np.diff(signal)
     if EGG:
-        height_p=0.004
+        height_p=0.0001
         distance_p=64
-        prominence_p=0.005
-        height_n=0.004
+        prominence_p=0.0005
+        height_n=0.0001
         distance_n=64
-        prominence_n=0.005
+        prominence_n=0.0005
     else:
         height_p = 3
         distance_p = 140
@@ -64,7 +65,7 @@ def get_cycles(signal, samplerate, EGG=True):
             if following_zero.size > 0:
                 end = following_zero[0]
                 ends.append(end)
-    # Cycles longer than 20 ms (50 Hz) or shorter than 0.23 ms (4410 Hz) are rejected at this stage.
+    # Cycles longer than 20 ms (882 samples) or shorter than 0.23 ms (10 samples) are rejected at this stage.
     for i in range(len(starts)-1):
         start = starts[i]
         end = starts[i+1]
@@ -78,16 +79,12 @@ def main():
     
     audio_file = 'audio/test_Voice_EGG.wav'
     signal, sr = librosa.load(audio_file, sr=44100, mono=False)
-    signal = signal[0]
-    signal = signal[:44100]
-    # EGG picker parameters, using librosa.load
-    segments = get_cycles(signal, 44100, EGG=True)
-    # sr, signal = wavfile.read(audio_file)
-    # signal = signal[:, 0]
-    # # choose the last second of the signal
-    # signal = signal[:44100]
-    # segments = get_cycles(signal, EGG=False)
+    signal = signal[1]
 
+    signal = process_EGG_signal(signal, 44100)
+    # EGG picker parameters, using librosa.load
+    segments, starts = get_cycles(signal, 44100, EGG=True)
+    
     # Plotting the results
     plt.figure(figsize=(10, 4))
     plt.plot(signal, label='Signal')

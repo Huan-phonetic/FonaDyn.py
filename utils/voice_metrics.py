@@ -13,6 +13,13 @@ import librosa
 from scipy.signal import butter, sosfilt
 from scipy import stats
 from cycle_picker import get_cycles
+from voice_preprocess import voice_preprocess
+import numpy as np
+import scipy.signal 
+import matplotlib.pyplot as plt
+import scipy.io.wavfile
+import math
+import numpy.matlib
 
 
 def autocorrelation(signal, n, k):
@@ -23,84 +30,7 @@ def autocorrelation(signal, n, k):
     result = ifft(power_spectrum)
     return np.real(result)[:n]  # Return only the lags that are needed
 
-def get_audio_metrics(signal, sr, n=4096, overlap=2048):
-    # A second-order high-pass Butterworth filter at 30 Hz is applied to the signal
-    # to remove the DC component and low-frequency noise
-    sos = butter(2, 30, 'hp', fs=sr, output='sos')
-    signal = sosfilt(sos, signal)
-
-    step = n - overlap
-    window = np.hanning(n)
-    k = n // 2  # k as n/2
-    frequencies = []
-    clarities = []
-    CPPs = []
-    SBs = []
-    times = []
-
-
-    for start in range(0, len(signal) - n, step):
-        segment = signal[start:start + n]
-        windowed_segment = segment * window
-
-        f0, clarity = find_f0(windowed_segment, sr, n, k, threshold=0.93, midi=True)
-        CPP = find_CPPs(windowed_segment, sr)
-        SB = find_SB(windowed_segment, sr)
-
-        frequencies.append(f0)
-        times.append(start / sr)
-        clarities.append(clarity)
-        CPPs.append(CPP)
-        SBs.append(SB)
-    
-    periods = get_cycles(signal, 44100)
-    # SPL and crest factor are calculated for each period
-    SPLs = []
-    crests = []
-    for start, end in periods:
-        segment = signal[start:end]
-        SPL = find_SPL(segment)
-        crest = find_crest_factor(segment)
-        SPLs.append(SPL)
-        crests.append(crest)
-
-    sampled_SPLs = period_downsampling(SPLs, periods, times)
-    sampled_crests = period_downsampling(crests, periods, times)
-
-    # Convert lists to numpy arrays
-    frequencies = np.array(frequencies)
-    sampled_SPLs = np.array(sampled_SPLs)
-    times = np.array(times)
-    clarities = np.array(clarities)
-    sampled_crests = np.array(sampled_crests)
-    CPPs = np.array(CPPs)
-    SBs = np.array(SBs)
-
-    # Create a mask for valid data points
-    valid_mask = (frequencies != 0) & (sampled_SPLs != 0)
-
-    # Filter data using the valid_mask
-    frequencies = frequencies[valid_mask]
-    sampled_SPLs = sampled_SPLs[valid_mask]
-    times = times[valid_mask]
-    clarities = clarities[valid_mask]
-    sampled_crests = sampled_crests[valid_mask]
-    CPPs = CPPs[valid_mask]
-    SBs = SBs[valid_mask]
-
-    # return a dictionary of the metrics
-    return {
-        'frequencies': frequencies,
-        'SPLs': sampled_SPLs,
-        'times': times,
-        'periods': periods,
-        'clarities': clarities,
-        'crests': sampled_crests,
-        'CPPs': CPPs,
-        'SBs': SBs        
-    }
-
-def find_f0(windowed_segment, sr, n, k,threshold=0.93, midi=False):
+def find_f0(windowed_segment, sr, n, k,threshold=0.96, midi=False):
     acorr = autocorrelation(windowed_segment, n, k)
     # Normalize the autocorrelation
     acorr /= acorr[0]  # Normalize by zero-lag
@@ -139,32 +69,22 @@ def find_crest_factor(signal):
     peak = np.max(np.abs(signal))
     return peak / rms
 
-# def period_downsampling(metric, periods, times, frame_size=2024):
-#     # Initialize an array to store the mean SPL values for each time frame
-#     sampled_metrics = np.zeros(len(times))
-    
-#     # Iterate over each time frame based on the times array
-#     for i, time in enumerate(times):
-#         # Define the start and end samples for the current time frame
-#         frame_start = time * 44100
-#         frame_end = time * 44100 + frame_size
-        
-#         # List to hold SPL values for periods within the current frame
-#         period_metrics = []
-
-#         for j, [start, end] in enumerate(periods):
-#             if start >= frame_start and end <= frame_end:
-#                 period_metrics.append(metric[j])
-
-#         # Calculate the mean SPL for the current time frame
-#         if len(period_metrics) > 0:
-#             sampled_metrics[i] = np.mean(period_metrics)
-#         else:
-#             sampled_metrics[i] = 0
-
-#     return sampled_metrics
-
 def period_downsampling(metric, periods, times, frame_size=2024, sample_rate=44100):
+    """
+    Calculate the mean sound pressure level (SPL) for each time frame based on the input periods.
+
+    Args:
+        metric (list or np.array): SPL values for each period.
+        periods (list of tuples or np.array): Start and end samples of each period.
+        times (list or np.array): Start times of each frame.
+        frame_size (int): Number of samples in each frame.
+        sample_rate (int): Number of samples per second.
+
+    Returns:
+        tuple: A tuple containing:
+            - np.array: Mean SPL values for each frame.
+            - np.array: Count of periods within each frame.
+    """
     # Calculate the start and end samples for each time frame
     frames_start = np.array(times) * sample_rate
     frames_end = frames_start + frame_size
@@ -173,54 +93,83 @@ def period_downsampling(metric, periods, times, frame_size=2024, sample_rate=441
     periods = np.array(periods)
     metric = np.array(metric)
 
-    # Initialize an array to store the mean SPL values for each time frame
+    # Initialize arrays to store the mean SPL values and period counts for each time frame
     sampled_metrics = np.zeros(len(times))
+    period_counts = np.zeros(len(times), dtype=int)
 
-    # Find indices where periods fit within the time frames
-    period_indices = np.logical_and(
-        periods[:, None, 0] >= frames_start,
-        periods[:, None, 1] <= frames_end
-    )
+    # Compute indices where periods start within the time frames
+    period_indices = np.logical_and(periods[:, None, 0] >= frames_start,
+                                    periods[:, None, 0] < frames_end)
 
-    # Calculate the mean SPL for each time frame
-    # using the identified indices
-    for i, (start, end) in enumerate(zip(frames_start, frames_end)):
+    # Calculate the mean SPL for each time frame using the identified indices
+    for i in range(len(times)):
         in_frame_periods = metric[period_indices[:, i]]
-        if in_frame_periods.size > 0:
+        period_counts[i] = np.sum(period_indices[:, i])
+        if period_counts[i] > 0:
             sampled_metrics[i] = np.mean(in_frame_periods)
 
-    return sampled_metrics
+    return sampled_metrics, period_counts
 
-def find_CPPs(windowed_segment, sr):
-    # Step 1: Perform initial FFT on the windowed segment
-    spectrum = fft(windowed_segment)
+def find_CPPs(x, fs, pitch_range): 
+    """
+    Computes cepstral peak prominence for a given signal 
 
-    # Step 2: Compute the power spectrum and convert to dB
-    power_spectrum = np.abs(spectrum) ** 2
-    power_spectrum_db = 10 * np.log10(power_spectrum + 1e-10)  # Avoid log of zero
+    Parameters
+    -----------
+    x: ndarray
+        The audio signal
+    fs: integer
+        The sampling frequency
+    pitch_range: list of 2 elements
+        The pitch range where a peak is searched for
 
-    # Step 3: Compute the cepstrum from the power spectrum in dB
-    cepstrum = ifft(power_spectrum_db).real
+    Returns
+    -----------
+    float
+        The cepstral peak prominence of the audio signal
+    """
+    # Quefrency
+    frameLen = len(x)
+    NFFT = 2**(math.ceil(np.log(frameLen)/np.log(2)))
+    quef = np.linspace(0, frameLen/1000, NFFT)
 
-    # Step 4: Select the first 1024 points of the cepstrum, resulting in 1024 quefrency bins
-    cepstrum = cepstrum[:2048]
+    # Allowed quefrency range
+    quef_lim = [int(np.round_(fs/pitch_range[1])), int(np.round_(fs/pitch_range[0]))]
+    quef_seq = range(quef_lim[0]-1, quef_lim[1])
+    
+    # FrameMat
+    frameMat = np.zeros(NFFT)
+    frameMat[0: frameLen] = x
 
-    # Step 5: Compute linear regression to detrend the cepstrum
-    quefrency_bins = np.arange(2048)
-    slope, intercept, _, _, _ = stats.linregress(quefrency_bins, cepstrum)
+    # Hanning
+    def hanning(N):
+        x = np.array([i/(N+1) for i in range(1,int(np.ceil(N/2))+1)])
+        w = 0.5-0.5*np.cos(2*np.pi*x)
+        w_rev = w[::-1]
+        return np.concatenate((w, w_rev[int((np.ceil(N%2))):]))
+    win = hanning(frameLen)
+    winmat = numpy.matlib.repmat(win, 1, 1)
+    frameMat = frameMat[0:frameLen]*winmat
+    frameMat = frameMat[0]
+    
+    # Cepstrum
+    SpecMat = np.abs(np.fft.fft(frameMat))
+    SpecdB = 20*np.log10(SpecMat)
+    ceps = 20*np.log10(np.abs(np.fft.fft(SpecdB)))
+    
+    # Finding the peak
+    ceps_lim = ceps[quef_seq]
+    ceps_max = np.max(ceps_lim)
+    max_index = np.argmax(ceps_lim)
 
-    # Detrend cepstrum
-    trend_line = slope * quefrency_bins + intercept
-    detrended_cepstrum = cepstrum - trend_line
+    # Normalisation
+    ceps_mean = np.mean(ceps_lim)
+    p = np.polyfit(quef_seq, ceps_lim,1)
+    ceps_norm = np.polyval(p, quef_seq[max_index])
 
-    # Step 6: Find the peak in the detrended cepstrum
-    # Considering vocal fundamental frequency range from 60 Hz to 880 Hz
-    # Convert these frequencies to quefrency indices
-    min_quefrency_index = int(sr / 880)
-    max_quefrency_index = int(sr / 60)
-    peak_cpp = np.max(detrended_cepstrum[min_quefrency_index:max_quefrency_index])
-
-    return peak_cpp
+    cpp = ceps_max-ceps_norm
+    
+    return cpp
     
 
 def find_SB(windowed_segment, sr):
@@ -264,15 +213,25 @@ def filter_out_zeros(frequencies, SPLs):
 # Example usage:
 def main():
     audio_file = 'audio/test_Voice_EGG.wav'
-    sr, signal = wavfile.read(audio_file)
-    signal = signal[:, 0]
+    # sr, signal = wavfile.read(audio_file)
+    # signal = signal[:, 0]
+    sr = 44100
+    voice = librosa.load(audio_file, sr=44100)[0]
 
-    audio_metrics = get_audio_metrics(signal, sr)
-    print('Successfully extracted audio metrics!')
-    # plot scatter frequency at x-axis and SPL at y-axis
-    plt.scatter(audio_metrics['frequencies'], audio_metrics['SPLs'])
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('SPL (dB)')
-    plt.show()
+    # Preprocess the signal
+    signal = voice_preprocess(voice, 44100)
+
+    n = 2048  # Window size
+    overlap = 1024  # Overlap size
+    step = n - overlap  # Step size
+    window = np.hanning(n)  # Hanning window
+
+    for start in range(0, len(signal) - n, step):
+        segment = signal[start:start + n]
+        windowed_segment = segment * window
+        # f, clarity = find_f0(windowed_segment, sr, n, n//2, threshold=0.90, midi=True)
+        CPP = find_CPPs(windowed_segment, sr)
+
+
 if __name__ == '__main__':
     main()
