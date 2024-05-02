@@ -1,6 +1,6 @@
 from voice_preprocess import voice_preprocess
 from EGG_process import process_EGG_signal
-from cycle_picker import get_cycles
+from cycle_picker import phase_tracker
 import numpy as np
 from voice_metrics import *
 from EGG_metrics import *
@@ -18,7 +18,8 @@ def get_metrics(signal, sample_rate, n=8096, overlap=6072):
     EGG = process_EGG_signal(EGG, sample_rate)
 
     # segment the EGG signal, this is also used for Audio signal since they are matched
-    segments, starts = get_cycles(EGG, sample_rate)
+    # segments, starts = get_cycles(EGG, sample_rate)
+    segments = phase_tracker(EGG, sample_rate)
 
     # calculate frame based metrics
     step = n - overlap
