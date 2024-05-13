@@ -12,7 +12,7 @@ import librosa
 from scipy.signal import butter, sosfilt
 from scipy import stats
 from cycle_picker import get_cycles
-from EGG_process import process_EGG_signal
+from utils.preprocess_EGG import preprocess_EGG_signal
 from scipy.fft import fft, fftfreq
 import nolds
 
@@ -98,14 +98,14 @@ def find_dEGG(EGG):
     dEGG = np.sum(np.abs(EGG_diff))
     return dEGG
 
-def find_HRF(EGG, srnum_harmonics=None):
+def find_HRF(EGG, num_harmonics=None):
     # Compute the FFT of the signal
     n = len(EGG)
     egg_fft = fft(EGG)
     frequencies = fftfreq(n, 1/EGG)
     
     # Calculate the magnitude of the FFT components
-    magnitudes = np.abs(egg_fft)
+    magnitudes = np.abs(np.asarray(egg_fft))
     
     # Calculate the power of each component (magnitude squared)
     powers = magnitudes**2
@@ -149,7 +149,7 @@ def main():
     audio_file = 'audio/test_Voice_EGG.wav'
     sr, signal = wavfile.read(audio_file)
     signal = signal[:, 1]
-    signal = process_EGG_signal(signal, sr)
+    signal = preprocess_EGG_signal(signal, sr)
     # segments = get_cycles(signal, EGG=True)
     CSE = find_CSE(signal)
     print(CSE)

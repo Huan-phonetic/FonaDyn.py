@@ -5,19 +5,13 @@ Cycle: SPL, crest factors
 
 import numpy as np
 from scipy.signal import correlate
-from scipy.io import wavfile
 from scipy.fftpack import fft, ifft
 from scipy.signal import find_peaks
-import matplotlib.pyplot as plt
 import librosa
 from scipy.signal import butter, sosfilt
-from scipy import stats
 from cycle_picker import get_cycles
-from voice_preprocess import voice_preprocess
+from utils.preprocess_Voice import preprocess_Voice_signal
 import numpy as np
-import scipy.signal 
-import matplotlib.pyplot as plt
-import scipy.io.wavfile
 import math
 import numpy.matlib
 
@@ -134,7 +128,7 @@ def find_CPPs(x, fs, pitch_range):
     quef = np.linspace(0, frameLen/1000, NFFT)
 
     # Allowed quefrency range
-    quef_lim = [int(np.round_(fs/pitch_range[1])), int(np.round_(fs/pitch_range[0]))]
+    quef_lim = [int(np.round(fs/pitch_range[1])), int(np.round(fs/pitch_range[0]))]
     quef_seq = range(quef_lim[0]-1, quef_lim[1])
     
     # FrameMat
@@ -183,8 +177,8 @@ def find_SB(windowed_segment, sr):
     sos_high = butter(4, high_cutoff, 'hp', fs=sr, output='sos')
 
     # Filter the segment
-    low_filtered = sosfilt(sos_low, windowed_segment)
-    high_filtered = sosfilt(sos_high, windowed_segment)
+    low_filtered = np.asarray(sosfilt(sos_low, windowed_segment))
+    high_filtered = np.asarray(sosfilt(sos_high, windowed_segment))
 
     # Calculate power in the bands, power is proportional to square of amplitude
     low_power = np.mean(low_filtered**2)
@@ -219,7 +213,7 @@ def main():
     voice = librosa.load(audio_file, sr=44100)[0]
 
     # Preprocess the signal
-    signal = voice_preprocess(voice, 44100)
+    signal = preprocess_Voice_signal(voice, 44100)
 
     n = 2048  # Window size
     overlap = 1024  # Overlap size
@@ -230,7 +224,7 @@ def main():
         segment = signal[start:start + n]
         windowed_segment = segment * window
         # f, clarity = find_f0(windowed_segment, sr, n, n//2, threshold=0.90, midi=True)
-        CPP = find_CPPs(windowed_segment, sr)
+        CPP = find_CPPs(windowed_segment, sr, [60, 880])
 
 
 if __name__ == '__main__':
