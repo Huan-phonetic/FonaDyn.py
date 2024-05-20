@@ -26,7 +26,7 @@ def highpass_filter(data, cutoff, sample_rate, order=2):
     return y
 
 
-def voice_preprocess(voice, fs):
+def preprocess_Voice_signal(voice, fs):
     voice = highpass_filter(voice, 30, sample_rate)
     return voice
 
@@ -35,7 +35,7 @@ def main():
     voice_path = 'audio/test_Voice_EGG.wav'
     # Load voice data
     voice = librosa.load(voice_path, sr=sample_rate)[0]
-    voice = voice_preprocess(voice, sample_rate)
+    voice = preprocess_Voice_signal(voice, sample_rate)
 
     print(f'File: {voice_path} of length {len(voice)} samples has been preprocessed')  
 

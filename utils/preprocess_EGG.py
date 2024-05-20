@@ -13,7 +13,26 @@ import matplotlib.pyplot as plt
 from scipy.signal import firwin, lfilter
 
 
-def process_EGG_signal(egg_signal, sample_rate, threshold_dB=-40, expansion_ratio=1/4):
+def preprocess_EGG_signal(egg_signal, sample_rate, threshold_dB=-40, expansion_ratio=1/4):
+    
+    def apply_high_pass_filter(signal, sample_rate=44100, numtaps=1025, cutoff=80):
+        # Design the FIR filter
+        fir_coeff = firwin(numtaps, cutoff, pass_zero=False, fs=sample_rate, window='hamming')
+
+        # Apply the filter to the signal using lfilter, which applies the filter in a linear-phase manner
+        filtered_signal = lfilter(fir_coeff, 1.0, signal)
+        
+        return filtered_signal
+
+    def apply_low_pass_filter(signal, sample_rate=44100, cutoff_hz=10000, numtaps=1025):
+        # Design the low-pass FIR filter with a cutoff of 10 kHz
+        fir_coeff = firwin(numtaps, cutoff_hz, fs=sample_rate, window='hamming', pass_zero=True)
+
+        # Apply the filter to the signal
+        filtered_signal = lfilter(fir_coeff, 1.0, signal)
+
+        return filtered_signal
+    
     # high pass filter
     filtered_signal = apply_high_pass_filter(egg_signal)
     
@@ -24,30 +43,14 @@ def process_EGG_signal(egg_signal, sample_rate, threshold_dB=-40, expansion_rati
 
     return filtered_signal
 
-def apply_high_pass_filter(signal, sample_rate=44100, numtaps=1025, cutoff=80):
-    # Design the FIR filter
-    fir_coeff = firwin(numtaps, cutoff, pass_zero=False, fs=sample_rate, window='hamming')
 
-    # Apply the filter to the signal using lfilter, which applies the filter in a linear-phase manner
-    filtered_signal = lfilter(fir_coeff, 1.0, signal)
-    
-    return filtered_signal
-
-def apply_low_pass_filter(signal, sample_rate=44100, cutoff_hz=10000, numtaps=1025):
-    # Design the low-pass FIR filter with a cutoff of 10 kHz
-    fir_coeff = firwin(numtaps, cutoff_hz, fs=sample_rate, window='hamming', pass_zero=True)
-
-    # Apply the filter to the signal
-    filtered_signal = lfilter(fir_coeff, 1.0, signal)
-
-    return filtered_signal
 
 # Example usage
 def main():
     audio_file = 'audio/test_Voice_EGG.wav'
     sr, signal = wavfile.read(audio_file)
     signal = signal[:, 1]
-    processed_signal = process_EGG_signal(signal, sr)
+    processed_signal = preprocess_EGG_signal(signal, sr)
     # plot raw and processed signal in two subplots
     plt.figure(figsize=(10, 4))
     plt.subplot(2, 1, 1)
