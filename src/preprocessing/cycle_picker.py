@@ -5,34 +5,31 @@ Two methods to pick a cycle:
 '''
 
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
-import librosa
-from scipy.io import wavfile
-from EGG_process import process_EGG_signal
-import numpy as np
-from scipy.integrate import cumtrapz
-from scipy.signal import find_peaks
-from scipy.signal import hilbert
+from scipy.signal import find_peaks, hilbert
 
-def get_cycles(signal, samplerate, EGG=True): 
-    '''
-    Input: signal, EGG=True if the signal is EGG, False if the signal is voice
-    Output: segments, a list of tuples, each tuple contains the start and end index of a cycle
-
-    Note: for audio signal, the best parameters have not been found yet, the current parameters are for EGG signal
-    Note2: the current parameters are for Librosa.load
-    '''
-
-    # differenciated signal
+def get_cycles(signal, samplerate, EGG=True):
+    """
+    Get cycle boundaries using double-sided peak-following method.
+    
+    Args:
+        signal (np.ndarray): Input signal
+        samplerate (int): Sampling rate
+        EGG (bool): Whether the signal is EGG (True) or voice (False)
+        
+    Returns:
+        tuple: (segments, starts) where segments is a list of cycle boundaries and starts is a list of cycle start points
+    """
+    # Differentiate signal
     signal = np.diff(signal)
+    
+    # Set parameters based on signal type
     if EGG:
-        height_p=0.0001
-        distance_p=64
-        prominence_p=0.0005
-        height_n=0.0001
-        distance_n=64
-        prominence_n=0.0005
+        height_p = 0.0001
+        distance_p = 64
+        prominence_p = 0.0005
+        height_n = 0.0001
+        distance_n = 64
+        prominence_n = 0.0005
     else:
         height_p = 3
         distance_p = 140
@@ -45,7 +42,7 @@ def get_cycles(signal, samplerate, EGG=True):
     positive_peaks, _ = find_peaks(signal, height=height_p, distance=distance_p, prominence=prominence_p)
     negative_peaks, _ = find_peaks(-signal, height=height_n, distance=distance_n, prominence=prominence_n)
 
-    # period accepts only one positive peak followed by one negative peak, the boundaries are defined by the three crossings
+    # Find peak pairs
     peaks = []
     for p in positive_peaks:
         following_negatives = negative_peaks[negative_peaks > p]
@@ -53,6 +50,7 @@ def get_cycles(signal, samplerate, EGG=True):
             n = following_negatives[0]
             peaks.append((p, n))
     
+    # Find cycle boundaries
     starts = []
     ends = []
     segments = []
@@ -69,32 +67,43 @@ def get_cycles(signal, samplerate, EGG=True):
             if following_zero.size > 0:
                 end = following_zero[0]
                 ends.append(end)
-    # Cycles longer than 20 ms (882 samples) or shorter than 0.23 ms (10 samples) are rejected at this stage.
+    
+    # Filter cycles based on duration
     for i in range(len(starts)-1):
         start = starts[i]
         end = starts[i+1]
         if end - start < 0.02 * samplerate and end - start > 0.00023 * samplerate:
             segments.append((start, end))
+            
     return segments, starts
 
 def phase_tracker(signal, fs):
+    """
+    Track cycles using phase portrait method.
+    
+    Args:
+        signal (np.ndarray): Input signal
+        fs (int): Sampling rate
+        
+    Returns:
+        list: List of cycle boundaries
+    """
     def detect_zero_crossings(signal):
-        # Detects zero-crossings in the signal
-        zero_crossings = np.where(np.diff(np.signbit(signal)))[0]
-        return zero_crossings
+        """Detect zero-crossings in the signal."""
+        return np.where(np.diff(np.signbit(signal)))[0]
 
     def extract_instantaneous_features(signal):
-        """Extracts amplitude envelope and normalized phase using the Hilbert transform."""
+        """Extract amplitude envelope and normalized phase using the Hilbert transform."""
         analytic_signal = hilbert(signal)
         amplitude_envelope = np.abs(analytic_signal)
         instantaneous_phase = np.angle(analytic_signal)
         normalized_phase = instantaneous_phase / np.max(np.abs(instantaneous_phase))
         return amplitude_envelope, normalized_phase
 
-
     def validate_cycles(phase, zero_crossings, fs):
+        """Validate cycles based on phase characteristics."""
         valid_boundaries = []
-        for i in range(1, len(zero_crossings)):  # Start from 1 to safely use zero_crossings[i - 1]
+        for i in range(1, len(zero_crossings)):
             start_idx = zero_crossings[i - 1]
             end_idx = zero_crossings[i]
             
@@ -104,14 +113,13 @@ def phase_tracker(signal, fs):
             # Find positive and negative peaks within the cycle
             positive_peaks, _ = find_peaks(cycle_phase, height=0.5, prominence=0.2)
             negative_peaks, _ = find_peaks(-cycle_phase, height=0.5, prominence=0.2)
-
             
-            # Validate the cycle by checking for exactly one positive and one negative peak
+            # Validate the cycle
             if positive_peaks.size == 1 and negative_peaks.size == 1 and any(cycle_phase > 0.9) and any(cycle_phase < -0.9):
-                valid_boundaries.append(end_idx)  # Append the start index of the cycle
-                i += 1  # Skip the next cycle since it is already validated
+                valid_boundaries.append(end_idx)
+                i += 1
         
-        # Cycles longer than 20 ms (882 samples) or shorter than 0.23 ms (10 samples) are rejected at this stage.
+        # Filter cycles based on duration
         periods = []
         for i in range(len(valid_boundaries)-1):
             start = valid_boundaries[i]
@@ -119,42 +127,11 @@ def phase_tracker(signal, fs):
             if end - start < 0.02 * fs and end - start > 0.00023 * fs:
                 periods.append((start, end))
 
-        return  periods
+        return periods
     
-    # Extract instantaneous features
+    # Extract features and get cycle boundaries
     amplitude_envelope, phase = extract_instantaneous_features(signal)
     zero_crossings = detect_zero_crossings(signal)
     cycle_boundaries = validate_cycles(phase, zero_crossings, fs)
 
-    return cycle_boundaries
-
-# Example usage:
-def main():
-    
-    audio_file = 'audio/test_Voice_EGG.wav'
-    signal, sr = librosa.load(audio_file, sr=44100, mono=False)
-    signal = signal[1]
-    sample_rate = 44100
-    signal = process_EGG_signal(signal, 44100)
-    # EGG picker parameters, using librosa.load
-    # segments, starts = get_cycles(signal, 44100, EGG=True)
-    # Create a sample signal (sine wave)
-    
-    # Get cycle boundaries
-    cycle_boundaries = phase_tracker(signal, sample_rate)
-
-    # Plot the signal, amplitude envelope, and phase
-    plt.figure(figsize=(10, 6))
-    plt.plot(signal, label='Signal')
-    plt.scatter(cycle_boundaries, signal[cycle_boundaries], color='red', label='Cycle boundaries')
-    plt.legend()
-    plt.xlabel('Time')
-    plt.ylabel('Amplitude')
-    plt.title('Signal, Amplitude Envelope, and Phase')
-
-    plt.show(block=True)
-    
-
-if __name__ == '__main__':
-
-    main()
+    return cycle_boundaries 

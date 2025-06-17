@@ -13,18 +13,17 @@ Output: VRP.csv
 
 import numpy as np
 import librosa
+from ..metrics.metrics_calculator import get_metrics
 
 def create_VRP_from_Voice_EGG(signal, sr):
-    # first channel is audio, second channel is EGG
-    voice = signal[:, 0]
-    EGG = signal[:, 1]
+    # signal shape: (2, N) or (N, 2)
+    if signal.shape[0] == 2:
+        data = signal
+    else:
+        data = signal.T
+    metrics = get_metrics(data, sr)
+    return metrics
 
-    # process the voice signal
-    voice_metrics = get_audio_metrics(voice, sr)
-
-    # process the EGG signal
-    EGG_metrics = get_EGG_metrics(EGG, sr)
-
-    # combine the voice and EGG metrics, check
-
-
+def combine_metrics(voice_metrics, EGG_metrics):
+    # TODO: Implement metric combination logic
+    pass 

@@ -9,10 +9,6 @@ Output: preprocessed voice channel
 import numpy as np
 from scipy.signal import butter, lfilter
 import librosa
-from matplotlib.pyplot import plot
-
-sample_rate = 44100
-
 
 def butter_highpass(cutoff, sample_rate, order=2):
     nyquist = 0.5 * sample_rate
@@ -25,19 +21,16 @@ def highpass_filter(data, cutoff, sample_rate, order=2):
     y = lfilter(b, a, data)
     return y
 
-
-def preprocess_Voice_signal(voice, fs):
-    voice = highpass_filter(voice, 30, sample_rate)
-    return voice
-
-# Example usage:
-def main():
-    voice_path = 'audio/test_Voice_EGG.wav'
-    # Load voice data
-    voice = librosa.load(voice_path, sr=sample_rate)[0]
-    voice = preprocess_Voice_signal(voice, sample_rate)
-
-    print(f'File: {voice_path} of length {len(voice)} samples has been preprocessed')  
-
-if __name__ == '__main__':
-    main()
+def preprocess_voice_signal(voice, fs):
+    """
+    Preprocess the voice signal using a high-pass filter.
+    
+    Args:
+        voice (np.ndarray): Input voice signal
+        fs (int): Sampling frequency
+        
+    Returns:
+        np.ndarray: Preprocessed voice signal
+    """
+    voice = highpass_filter(voice, 30, fs)
+    return voice 
