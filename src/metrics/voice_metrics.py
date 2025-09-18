@@ -27,43 +27,103 @@ def autocorrelation(signal, n, k):
     result = ifft(power_spectrum)
     return np.real(result)[:n]
 
-def find_f0(windowed_segment, sr, n, k, threshold=0.96, midi=False):
+def find_f0(windowed_segment, sr, n=None, k=None, threshold=0.0, midi=False,
+            midi_min=30, midi_max=100):
     """
-    Find fundamental frequency using autocorrelation.
-    
+    Estimate fundamental frequency using NACF + peak detection + parabolic interpolation.
+
     Args:
-        windowed_segment (np.ndarray): Windowed signal segment
+        windowed_segment (np.ndarray): Signal segment (windowed or cycle)
         sr (int): Sampling rate
-        n (int): Window size
-        k (int): Maximum lag
-        threshold (float): Confidence threshold
-        midi (bool): Whether to return MIDI note number
-        
+        n (int): (unused, kept for compatibility)
+        k (int): (unused, kept for compatibility)
+        threshold (float): Confidence threshold for NACF peak
+        midi (bool): Return MIDI note number if True, else Hz
+        midi_min (int): Minimum allowed MIDI note
+        midi_max (int): Maximum allowed MIDI note
+
     Returns:
         tuple: (frequency, confidence)
+            frequency: in Hz or MIDI
+            confidence: NACF peak value
     """
-    acorr = autocorrelation(windowed_segment, n, k)
-    acorr /= acorr[0]  # Normalize by zero-lag
+    x = np.asarray(windowed_segment, dtype=float)
+    if len(x) < 8:
+        return 0.0, 0.0
+    x -= np.mean(x)
+    peak_abs = np.max(np.abs(x))
+    if peak_abs == 0:
+        return 0.0, 0.0
+    x /= peak_abs
 
-    peaks, properties = find_peaks(acorr, height=0)
+    # Autocorrelation using FFT (more accurate)
+    extended_size = len(x) * 2
+    fft_result = fft(x, extended_size)
+    power_spectrum = np.abs(fft_result)**2
+    ac = ifft(power_spectrum)
+    ac = np.real(ac[:len(x)])
+    nac = ac / (ac[0] + 1e-8)
 
-    if peaks.size > 0:
-        heights = properties['peak_heights']
-        max_index = np.argmax(heights)
-        peak = peaks[max_index]
-        confidence = heights[max_index]
-        if confidence > threshold:
-            frequency = sr / peak
-            if frequency > 1000:
-                frequency = 0
-                confidence = 0
-            elif midi:
-                frequency = 69 + 12 * np.log2(frequency / 440)
-            return frequency, confidence
-        else:
-            return 0, 0
+    # Frequency bounds
+    def midi_to_hz(m): 
+        return 440.0 * (2.0 ** ((m - 69.0) / 12.0))
+    fmin, fmax = midi_to_hz(midi_min), midi_to_hz(midi_max)
+    lo = max(1, int(sr / max(fmax, 1e-6)))
+    hi = min(int(sr / max(fmin, 1e-6)), len(nac) - 3)
+    if hi <= lo:
+        return 0.0, 0.0
+
+    # ROI peaks with stricter detection
+    roi = nac[lo:hi+1]
+    # Use higher threshold and distance constraint
+    peaks, props = find_peaks(roi, height=0.1, distance=max(1, len(roi)//20))
+    if len(peaks) == 0:
+        return 0.0, 0.0
+
+    # Best peak
+    best_idx = np.argmax(props["peak_heights"])
+    k_rel = int(peaks[best_idx])
+    confidence = float(props["peak_heights"][best_idx])
+    if confidence < threshold:
+        return 0.0, confidence
+    i = lo + k_rel
+
+    # Parabolic interpolation
+    if 1 <= i < len(nac)-1:
+        a, b, c = nac[i-1], nac[i], nac[i+1]
+        denom = (a - 2*b + c)
+        delta = 0.0 if abs(denom) < 1e-12 else 0.5 * (a - c) / denom
     else:
-        return 0, 0
+        delta = 0.0
+    lag = i + delta
+
+    if lag <= 0:
+        return 0.0, confidence
+    f0_hz = sr / lag
+
+    # Harmonic correction
+    if not (fmin <= f0_hz <= fmax) and f0_hz > 0:
+        if 2*fmin <= f0_hz <= 2*fmax:
+            f0_hz *= 0.5
+        elif 0.5*fmin <= f0_hz <= 0.5*fmax:
+            f0_hz *= 2.0
+
+    if f0_hz <= 0 or not (fmin <= f0_hz <= fmax):
+        return 0.0, confidence
+
+    # Additional validation: check if F0 makes sense based on signal length
+    expected_f0_min = sr / len(x)  # Minimum possible F0
+    expected_f0_max = sr / (len(x) * 0.5)  # Maximum possible F0
+    
+    if f0_hz < expected_f0_min or f0_hz > expected_f0_max:
+        # Use period-based estimation as fallback
+        f0_hz = sr / len(x)
+        confidence *= 0.5  # Lower confidence for fallback
+
+    if midi:
+        return 69.0 + 12.0 * np.log2(f0_hz / 440.0), confidence
+    else:
+        return f0_hz, confidence
 
 def find_spl(signal, reference=20e-6):
     """
@@ -76,8 +136,9 @@ def find_spl(signal, reference=20e-6):
     Returns:
         float: Sound pressure level in dB
     """
-    signal = signal * 20
     rms = np.sqrt(np.mean(signal**2))
+    if rms <= 0:
+        return 0.0
     spl = 20 * np.log10(rms / reference)
     return spl
 

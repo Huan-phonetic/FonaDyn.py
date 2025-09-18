@@ -1,0 +1,11 @@
+TITLE:: LineFileReader
+summary:: with OS-independent line breaks
+categories:: Files
+related:: Classes/FileReader
+
+DESCRIPTION::
+On DOS/Windows, FileReader returns an extra empty string for every line.
+This workaround is just a subclass of FileReader that treats both LF and CR+LF as a single line break. Otherwise identical.
+
+Note that in the array of strings returned by all the FileReader variants, each line is bracketed with "[ " and " ]", which is very annoying, and hard to figure out from the post window. You will probably need to strip off those ends.
+

@@ -1,0 +1,7 @@
+Metric;Map file;Min color;Max color;Min value;Max value
+Total;Density4.csv
+SpecBal;parula256.csv
+maxCluster;IBM5.csv
+Icontact;parula256.csv
+maxCPhon;PaulTolsMuted8.csv
+HRFegg;RainbowFlatMuted256.csv;0.167;1.0
