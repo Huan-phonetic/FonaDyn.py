@@ -1,4 +1,4 @@
-# FonaDyn Python Implementation Requirements
+# VoiceMap Python Implementation Requirements
 # Install with: pip install -r requirements.txt
 
 # Core dependencies

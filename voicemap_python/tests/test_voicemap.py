@@ -44,7 +44,7 @@ class TestMetricCalculators(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures"""
-        self.config = FonaDynConfig()
+        self.config = VoiceMapConfig()
         self.spl_calculator = SPLCalculator(self.config)
         self.clarity_calculator = ClarityCalculator(self.config)
     

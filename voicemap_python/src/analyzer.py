@@ -168,7 +168,7 @@ class VoiceMapAnalyzer:
     
     def filter_cycles(self, cycle_triggers: np.ndarray) -> np.ndarray:
         """
-        Filter cycles according to FonaDyn standards.
+        Filter cycles according to VoiceMap standards.
         
         Args:
             cycle_triggers: Raw cycle triggers
@@ -445,7 +445,7 @@ class VoiceMapAnalyzer:
             
             self.logger.info(f"  Original data points: {len(df):,}")
             
-            # Apply FonaDyn standard range filtering
+            # Apply VoiceMap standard range filtering
             range_mask = (
                 (df['MIDI'] >= self.config.n_min_midi) & (df['MIDI'] <= self.config.n_max_midi) &
                 (df['dB'] >= self.config.n_min_spl) & (df['dB'] <= self.config.n_max_spl)

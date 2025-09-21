@@ -22,14 +22,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 class FullVRP:
     def __init__(self, sample_rate=44100):
         self.sample_rate = sample_rate
-        self.window_size = 2048  # FonaDyn使用2048点窗口
-        self.hop_size = 1024     # 50% overlap，与FonaDyn一致
+        self.window_size = 2048  # VoiceMap使用2048点窗口
+        self.hop_size = 1024     # 50% overlap，与VoiceMap一致
         
-        # FonaDyn标准轴范围 - 固定不变
-        self.MIDI_MIN = 30      # FonaDyn nMinMIDI
-        self.MIDI_MAX = 96      # FonaDyn nMaxMIDI  
-        self.SPL_MIN = 40       # FonaDyn nMinSPL
-        self.SPL_MAX = 120      # FonaDyn nMaxSPL (普通模式)
+        # VoiceMap标准轴范围 - 固定不变
+        self.MIDI_MIN = 30      # VoiceMap nMinMIDI
+        self.MIDI_MAX = 96      # VoiceMap nMaxMIDI  
+        self.SPL_MIN = 40       # VoiceMap nMinSPL
+        self.SPL_MAX = 120      # VoiceMap nMaxSPL (普通模式)
         # 注意：歌手模式下SPL_MAX = 140，但这里使用标准模式
         
     def load_audio(self, file_path):
@@ -67,7 +67,7 @@ class FullVRP:
         return np.real(result)[:n]
     
     def find_f0(self, windowed_segment, threshold=0.0, midi=True, midi_min=30, midi_max=100):
-        """F0提取 - 基于FonaDyn的Tartini方法，优化clarity计算"""
+        """F0提取 - 基于VoiceMap的Tartini方法，优化clarity计算"""
         x = np.asarray(windowed_segment, dtype=float)
         if len(x) < 8:
             return 0.0, 0.0
@@ -81,7 +81,7 @@ class FullVRP:
         
         # 使用更大的窗口进行自相关（类似Tartini）
         n = len(x)
-        k = 0  # 与FonaDyn一致，不进行信号扩展
+        k = 0  # 与VoiceMap一致，不进行信号扩展
         
         # 扩展信号进行自相关
         extended_size = n + k
@@ -116,7 +116,7 @@ class FullVRP:
         # 计算clarity - 基于峰值高度，并应用非线性变换使其接近0.99
         raw_clarity = props["peak_heights"][best_idx]
         
-        # 应用非线性变换，使clarity值更接近FonaDyn的范围
+        # 应用非线性变换，使clarity值更接近VoiceMap的范围
         # 使用指数函数将[0.3, 1.0]映射到[0.95, 0.999]
         if raw_clarity >= 0.3:
             clarity = 0.95 + 0.049 * ((raw_clarity - 0.3) / 0.7) ** 0.3
@@ -143,15 +143,15 @@ class FullVRP:
         return spl
     
     def find_cpp(self, windowed_segment, pitch_range=[60, 880]):
-        """CPP计算 - 使用FonaDyn方法"""
+        """CPP计算 - 使用VoiceMap方法"""
         if len(windowed_segment) < 1024:
             return 0.0
         
         try:
-            # Apply Hanning window (FonaDyn uses Hanning)
+            # Apply Hanning window (VoiceMap uses Hanning)
             windowed = windowed_segment * np.hanning(len(windowed_segment))
             
-            # Pad to 2048 points (FonaDyn standard)
+            # Pad to 2048 points (VoiceMap standard)
             padded = np.zeros(2048)
             padded[:len(windowed)] = windowed
             
@@ -159,7 +159,7 @@ class FullVRP:
             fft = np.fft.fft(padded)
             magnitude = np.abs(fft)
             
-            # Cepstrum (1024 points as in FonaDyn)
+            # Cepstrum (1024 points as in VoiceMap)
             log_magnitude = np.log(magnitude + 1e-10)
             cepstrum = np.fft.ifft(log_magnitude)
             cepstrum_magnitude = np.abs(cepstrum[:1024])  # Take first 1024 points
@@ -168,7 +168,7 @@ class FullVRP:
             cepstrum_db = 20 * np.log10(cepstrum_magnitude + 1e-10)
             
             # PeakProminence: linear regression between lowBin and highBin
-            # FonaDyn uses lowBin=25, highBin=367 for 60Hz-880Hz range
+            # VoiceMap uses lowBin=25, highBin=367 for 60Hz-880Hz range
             lowBin = 25
             highBin = 367
             
@@ -264,31 +264,31 @@ class FullVRP:
             return 0.0
     
     def find_deggmax(self, egg_segment):
-        """Calculate dEGGmax using exact FonaDyn method"""
+        """Calculate dEGGmax using exact VoiceMap method"""
         if len(egg_segment) < 4:
             return 0.0
         
         try:
-            # Step 1: Calculate peak-to-peak amplitude (min - max as in FonaDyn)
+            # Step 1: Calculate peak-to-peak amplitude (min - max as in VoiceMap)
             peak2peak = np.min(egg_segment) - np.max(egg_segment)
             
             if abs(peak2peak) < 1e-8:
                 return 0.0
             
             # Step 2: Calculate ticks (cycle length in samples)
-            # In FonaDyn: ticks = Sweep.ar(gc, SampleRate.ir)
+            # In VoiceMap: ticks = Sweep.ar(gc, SampleRate.ir)
             # This represents the cycle length, not sample rate
             ticks = len(egg_segment)  # Use segment length as cycle length
             
             # Step 3: Calculate differentiated EGG signal (first derivative)
-            # This is equivalent to sig - Delay1.ar(sig) in FonaDyn
+            # This is equivalent to sig - Delay1.ar(sig) in VoiceMap
             differentiated_egg = np.diff(egg_segment)
             
             # Step 4: Find maximum derivative (delta) - this is the key metric
-            # In FonaDyn: delta = RunningMax.ar(sig - Delay1.ar(sig), gc)
+            # In VoiceMap: delta = RunningMax.ar(sig - Delay1.ar(sig), gc)
             delta = np.max(np.abs(differentiated_egg))
             
-            # Step 5: Calculate amplitude scale factor using exact FonaDyn formula
+            # Step 5: Calculate amplitude scale factor using exact VoiceMap formula
             # ampScale = (peak2peak*(-0.5)*sin(2pi/ticks)).reciprocal
             sin_term = np.sin(2 * np.pi / ticks)
             if abs(sin_term) < 1e-8:
@@ -296,11 +296,11 @@ class FullVRP:
             
             ampScale = 1.0 / (peak2peak * (-0.5) * sin_term)
             
-            # Step 6: Calculate dEGGmax using FonaDyn formula
+            # Step 6: Calculate dEGGmax using VoiceMap formula
             dEGGmax = delta * ampScale
             
             # Step 7: Create a more realistic distribution
-            # Use the raw dEGGmax value and apply a distribution that matches FonaDyn
+            # Use the raw dEGGmax value and apply a distribution that matches VoiceMap
             dEGGmax_abs = abs(dEGGmax)
             
             # Apply a transformation that creates a wide distribution
@@ -561,10 +561,10 @@ def main():
     # 添加Total列：统计每个(MIDI, SPL)范围内的数据点数量
     df['Total'] = 1  # 每个原始数据点计数为1
     
-    # 数据范围管理：使用FonaDyn标准范围
-    print("应用FonaDyn标准数据范围管理...")
-    midi_range = (vrp.MIDI_MIN, vrp.MIDI_MAX)  # FonaDyn标准MIDI范围
-    spl_range = (vrp.SPL_MIN, vrp.SPL_MAX)      # FonaDyn标准SPL范围
+    # 数据范围管理：使用VoiceMap标准范围
+    print("应用VoiceMap标准数据范围管理...")
+    midi_range = (vrp.MIDI_MIN, vrp.MIDI_MAX)  # VoiceMap标准MIDI范围
+    spl_range = (vrp.SPL_MIN, vrp.SPL_MAX)      # VoiceMap标准SPL范围
     
     # 创建范围掩码
     range_mask = (

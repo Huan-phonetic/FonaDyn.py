@@ -19,11 +19,11 @@ class BasicVRP:
         self.hop_size = 512      # 50% overlap
         self.spl_reference = 20e-6  # 标准声压参考值，可调节
         
-        # FonaDyn标准轴范围 - 固定不变
-        self.MIDI_MIN = 30      # FonaDyn nMinMIDI
-        self.MIDI_MAX = 96      # FonaDyn nMaxMIDI  
-        self.SPL_MIN = 40       # FonaDyn nMinSPL
-        self.SPL_MAX = 120      # FonaDyn nMaxSPL (普通模式)
+        # VoiceMap标准轴范围 - 固定不变
+        self.MIDI_MIN = 30      # VoiceMap nMinMIDI
+        self.MIDI_MAX = 96      # VoiceMap nMaxMIDI  
+        self.SPL_MIN = 40       # VoiceMap nMinSPL
+        self.SPL_MAX = 120      # VoiceMap nMaxSPL (普通模式)
         
     def load_audio(self, file_path):
         """加载音频文件"""
@@ -151,7 +151,7 @@ class BasicVRP:
         
         print(f"提取到 {len(midi_values)} 个数据点")
         
-        # 过滤有效数据 - 使用FonaDyn标准范围
+        # 过滤有效数据 - 使用VoiceMap标准范围
         valid_data = [(m, s) for m, s in zip(midi_values, spl_values) 
                      if (m >= self.MIDI_MIN and m <= self.MIDI_MAX and 
                          s >= self.SPL_MIN and s <= self.SPL_MAX)]
