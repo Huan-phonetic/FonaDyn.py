@@ -11,10 +11,214 @@ from scipy.fft import fft, ifft
 from scipy.stats import linregress
 from typing import Tuple, Optional
 import logging
+import math
 
 from config import VoiceMapConfig
 
 logger = logging.getLogger(__name__)
+
+
+def calculate_sample_entropy(data: np.ndarray, m: int = 2, r: float = 0.2) -> float:
+    """
+    计算Sample Entropy
+    
+    Args:
+        data: 输入数据序列
+        m: 模式长度，默认为2
+        r: 相似性阈值，默认为0.2
+        
+    Returns:
+        Sample Entropy值
+    """
+    n = len(data)
+    A = 0
+    B = 0
+    
+    for i in range(n - m):
+        for j in range(i + 1, n - m):
+            match = True
+            for k in range(m):
+                if abs(data[i + k] - data[j + k]) > r:
+                    match = False
+                    break
+            
+            if match:
+                B += 1
+                if abs(data[i + m] - data[j + m]) <= r:
+                    A += 1
+    
+    if A == 0 or B == 0:
+        return 0.0
+    
+    return -math.log(A / B)
+
+
+def compute_dft_features_fonadyn_strict(cycle: np.ndarray, nharmonics: int) -> tuple:
+    """
+    严格按FonaDyn实现的逐周期DFT（矩形窗、1周期帧长、整数谐波下标）
+    
+    Args:
+        cycle: 单个周期的信号数据
+        nharmonics: 谐波数量
+        
+    Returns:
+        (delta_magnitudes_db, delta_phases): 相对幅度(dB)和相对相位
+    """
+    n = len(cycle)
+    magnitudes = np.zeros(nharmonics)
+    phases = np.zeros(nharmonics)
+    
+    # 逐谐波计算DFT（矩形窗、1周期帧长、整数谐波下标）
+    for k in range(1, nharmonics + 1):  # k=1是基频，k=0是DC分量
+        # 计算余弦和正弦内积
+        cos_sum = 0.0
+        sin_sum = 0.0
+        
+        for i in range(n):
+            angle = 2 * np.pi * k * i / n
+            cos_sum += cycle[i] * np.cos(angle)
+            sin_sum += cycle[i] * np.sin(angle)
+        
+        # 计算幅度和相位
+        real_part = cos_sum / n
+        imag_part = sin_sum / n
+        
+        magnitudes[k-1] = np.sqrt(real_part**2 + imag_part**2)
+        phases[k-1] = np.arctan2(imag_part, real_part)
+    
+    # 计算相对幅度 ΔL_k（相对基频，dB）
+    base_magnitude = magnitudes[0]  # 基频幅度
+    delta_magnitudes_db = np.zeros(nharmonics)
+    delta_phases = np.zeros(nharmonics)
+    
+    for k in range(nharmonics):
+        if base_magnitude > 1e-10:  # 避免除零
+            delta_magnitudes_db[k] = 20 * np.log10(magnitudes[k] / base_magnitude)
+        else:
+            delta_magnitudes_db[k] = -100  # 很小的值
+        
+        # 计算相对相位 Δϕ_k = ϕ_k - ϕ_1
+        delta_phases[k] = phases[k] - phases[0]
+    
+    return delta_magnitudes_db, delta_phases
+
+
+def compute_cse_fonadyn_strict(cycles: list, nharmonics: int = 10, m: int = 2, r_factor: float = 0.2) -> np.ndarray:
+    """
+    严格按FonaDyn实现的CSE计算
+    
+    Args:
+        cycles: 周期数据列表
+        nharmonics: 谐波数量
+        m: SampEn模式长度
+        r_factor: 容差系数（r = r_factor × std(window)）
+        
+    Returns:
+        CSE值数组
+    """
+    if len(cycles) < 20:  # 需要足够的数据
+        return np.zeros(len(cycles))
+    
+    # 第一步：计算所有周期的谐波特征
+    harmonic_features = []
+    for cycle in cycles:
+        delta_mag_db, delta_phase = compute_dft_features_fonadyn_strict(cycle, nharmonics)
+        harmonic_features.append((delta_mag_db, delta_phase))
+    
+    # 第二步：计算跨周期的ΔL和Δϕ序列
+    delta_magnitudes_db = []  # ΔL序列
+    delta_phases = []         # Δϕ序列
+    
+    for i in range(len(harmonic_features) - 1):
+        mag1, phase1 = harmonic_features[i]
+        mag2, phase2 = harmonic_features[i + 1]
+        
+        # 计算变化量
+        delta_mag_db = mag2 - mag1
+        delta_phase = phase2 - phase1
+        
+        # 相位差归一化到[-π, π]
+        delta_phase = np.arctan2(np.sin(delta_phase), np.cos(delta_phase))
+        
+        delta_magnitudes_db.extend(delta_mag_db)
+        delta_phases.extend(delta_phase)
+    
+    # 转换为numpy数组
+    delta_magnitudes_db = np.array(delta_magnitudes_db)
+    delta_phases = np.array(delta_phases)
+    
+    # 第三步：按周期滑窗计算CSE
+    cse_values = []
+    window_size = 20  # 窗口长度 w=20 周期
+    
+    for i in range(len(cycles) - window_size + 1):
+        # 获取窗口内的数据
+        start_idx = i * nharmonics
+        end_idx = (i + window_size - 1) * nharmonics
+        
+        if end_idx >= len(delta_magnitudes_db):
+            break
+            
+        window_delta_mag_db = delta_magnitudes_db[start_idx:end_idx]
+        window_delta_phase = np.abs(delta_phases[start_idx:end_idx])  # 送入熵前取绝对值 |Δϕ_k|
+        
+        # 计算SampEn参数
+        mag_std = np.std(window_delta_mag_db)
+        phase_std = np.std(window_delta_phase)
+        
+        r_mag = r_factor * mag_std if mag_std > 0 else 0.01
+        r_phase = r_factor * phase_std if phase_std > 0 else 0.01
+        
+        # 计算Sample Entropy（使用log₂）
+        mag_entropy = calculate_sample_entropy_log2(window_delta_mag_db, m, r_mag)
+        phase_entropy = calculate_sample_entropy_log2(window_delta_phase, m, r_phase)
+        
+        # 对每个谐波的两条序列分别算SampEn，再求和
+        cse = mag_entropy + phase_entropy
+        cse_values.append(cse)
+    
+    # 填充剩余值
+    while len(cse_values) < len(cycles):
+        cse_values.append(cse_values[-1] if cse_values else 0.0)
+    
+    return np.array(cse_values)
+
+
+def calculate_sample_entropy_log2(data: np.ndarray, m: int = 2, r: float = 0.2) -> float:
+    """
+    计算Sample Entropy（使用log₂）
+    
+    Args:
+        data: 输入数据
+        m: 模式长度
+        r: 容差
+        
+    Returns:
+        Sample Entropy值
+    """
+    n = len(data)
+    if n < m + 1:
+        return 0.0
+    
+    A = 0
+    B = 0
+    
+    for i in range(n - m):
+        for j in range(i + 1, n - m):
+            match = True
+            for k in range(m):
+                if abs(data[i + k] - data[j + k]) > r:
+                    match = False
+                    break
+            if match:
+                B += 1
+                if abs(data[i + m] - data[j + m]) <= r:
+                    A += 1
+    
+    if A == 0 or B == 0:
+        return 0.0
+    
+    return -math.log2(A / B)
 
 
 class MetricCalculator:
@@ -618,32 +822,78 @@ class QcontactCalculator(MetricCalculator):
 
 
 class EntropyCalculator(MetricCalculator):
-    """Entropy Calculator (placeholder for future implementation)"""
+    """Sample Entropy Calculator for voice signal analysis (based on harmonic analysis)"""
+    
+    def __init__(self, config: VoiceMapConfig):
+        """Initialize entropy calculator with configuration"""
+        super().__init__(config)
+        # Sample Entropy parameters
+        self.m = 2  # 模式长度
+        self.r_factor = 0.2  # 容差系数（r = 0.2 × std(window)）
+        self.num_harmonics = 10  # 分析的谐波数量
     
     def calculate(
         self, 
         voice_signal: np.ndarray, 
-        cycle_triggers: np.ndarray
+        cycle_triggers: np.ndarray,
+        egg_signal: np.ndarray = None
     ) -> np.ndarray:
         """
-        Calculate Entropy - currently returns zeros.
+        Calculate Cycle-rate Sample Entropy (CSE) using EGG signal and GCI-based cycle detection.
         
         Args:
-            voice_signal: Preprocessed voice signal
+            voice_signal: Preprocessed voice signal (not used for CSE calculation)
             cycle_triggers: Cycle trigger array
+            egg_signal: EGG signal for CSE calculation
         
         Returns:
-            Array of Entropy values (all zeros)
+            Array of CSE values for each cycle
         """
-        logger.info("Calculating Entropy (placeholder)...")
+        logger.info("Calculating Cycle-rate Sample Entropy (CSE) using EGG signal...")
+        
+        if egg_signal is None:
+            logger.warning("EGG signal not provided, using voice signal instead")
+            signal_for_cse = voice_signal
+        else:
+            signal_for_cse = egg_signal
+            logger.info("Using EGG signal for CSE calculation")
         
         cycle_indices = np.where(cycle_triggers > 0.5)[0]
-        entropy_values = np.zeros(len(cycle_indices) - 1)
         
-        logger.info(f"  Calculated {len(entropy_values)} Entropy values (all zeros)")
-        logger.info(f"  Entropy range: {entropy_values.min():.3f} - {entropy_values.max():.3f}")
+        if len(cycle_indices) < 3:
+            logger.warning("Not enough cycles for CSE calculation")
+            return np.zeros(len(cycle_indices) - 1)
         
-        return entropy_values
+        logger.info(f"  CSE parameters: m={self.m}, harmonics={self.num_harmonics}")
+        logger.info(f"  Total cycles: {len(cycle_indices)}")
+        logger.info(f"  Signal type: {'EGG' if egg_signal is not None else 'Audio'}")
+        
+        # 提取所有周期的数据（使用EGG信号）
+        cycles = []
+        for i in range(len(cycle_indices) - 1):
+            start_idx = cycle_indices[i]
+            end_idx = cycle_indices[i + 1]
+            cycle_data = signal_for_cse[start_idx:end_idx]
+            cycles.append(cycle_data)
+        
+        # 使用严格按FonaDyn实现的CSE算法
+        cse_values = compute_cse_fonadyn_strict(
+            cycles, 
+            nharmonics=self.num_harmonics,
+            m=self.m,
+            r_factor=self.r_factor
+        )
+        
+        # 处理无穷大的情况
+        cse_values = np.where(np.isinf(cse_values), 10.0, cse_values)
+        cse_values = np.where(np.isnan(cse_values), 0.0, cse_values)
+        
+        logger.info(f"  Calculated {len(cse_values)} CSE values")
+        logger.info(f"  CSE range: {cse_values.min():.3f} - {cse_values.max():.3f}")
+        logger.info(f"  CSE mean: {np.mean(cse_values):.3f}")
+        logger.info(f"  CSE std: {np.std(cse_values):.3f}")
+        
+        return cse_values
 
 
 class HRFCalculator(MetricCalculator):

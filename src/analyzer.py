@@ -333,7 +333,7 @@ class VoiceMapAnalyzer:
             specbal_values = self.specbal_calculator.calculate(voice_signal, cycle_triggers)
             crest_values = self.crest_calculator.calculate(voice_signal, cycle_triggers)
             qcontact_values, deggmax_values, icontact_values = self.qcontact_calculator.calculate(egg_signal, cycle_triggers)
-            entropy_values = self.entropy_calculator.calculate(voice_signal, cycle_triggers)
+            entropy_values = self.entropy_calculator.calculate(voice_signal, cycle_triggers, egg_signal)
             hrf_values = self.hrf_calculator.calculate(voice_signal, cycle_triggers)
             
             return {
