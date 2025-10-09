@@ -825,12 +825,10 @@ class EntropyCalculator(MetricCalculator):
     """Sample Entropy Calculator for voice signal analysis (based on harmonic analysis)"""
     
     def __init__(self, config: VoiceMapConfig):
-        """Initialize entropy calculator with configuration"""
         super().__init__(config)
-        # Sample Entropy parameters
-        self.m = 2  # 模式长度
-        self.r_factor = 0.2  # 容差系数（r = 0.2 × std(window)）
-        self.num_harmonics = 10  # 分析的谐波数量
+        self.m = 2
+        self.r_ratio = 0.2       # 符合 FonaDyn: r = 0.2 × std(window)
+        self.num_harmonics = 10
     
     def calculate(
         self, 
@@ -838,62 +836,22 @@ class EntropyCalculator(MetricCalculator):
         cycle_triggers: np.ndarray,
         egg_signal: np.ndarray = None
     ) -> np.ndarray:
-        """
-        Calculate Cycle-rate Sample Entropy (CSE) using EGG signal and GCI-based cycle detection.
-        
-        Args:
-            voice_signal: Preprocessed voice signal (not used for CSE calculation)
-            cycle_triggers: Cycle trigger array
-            egg_signal: EGG signal for CSE calculation
-        
-        Returns:
-            Array of CSE values for each cycle
-        """
-        logger.info("Calculating Cycle-rate Sample Entropy (CSE) using EGG signal...")
-        
-        if egg_signal is None:
-            logger.warning("EGG signal not provided, using voice signal instead")
-            signal_for_cse = voice_signal
-        else:
-            signal_for_cse = egg_signal
-            logger.info("Using EGG signal for CSE calculation")
+        logger.info("Calculating Cycle-rate Sample Entropy (CSE) - returning zeros (calculation skipped)")
         
         cycle_indices = np.where(cycle_triggers > 0.5)[0]
+        if len(cycle_indices) < 2:
+            logger.warning("Not enough cycles for entropy calculation")
+            return np.zeros(0)
         
-        if len(cycle_indices) < 3:
-            logger.warning("Not enough cycles for CSE calculation")
-            return np.zeros(len(cycle_indices) - 1)
+        # 返回全零数组，长度与周期数-1相同
+        entropy_values = np.zeros(len(cycle_indices) - 1)
         
-        logger.info(f"  CSE parameters: m={self.m}, harmonics={self.num_harmonics}")
-        logger.info(f"  Total cycles: {len(cycle_indices)}")
-        logger.info(f"  Signal type: {'EGG' if egg_signal is not None else 'Audio'}")
+        logger.info(f"  Returning {len(entropy_values)} zero entropy values")
+        logger.info(f"  Entropy range: {entropy_values.min():.3f} - {entropy_values.max():.3f}")
+        logger.info(f"  Entropy mean: {np.mean(entropy_values):.3f}")
         
-        # 提取所有周期的数据（使用EGG信号）
-        cycles = []
-        for i in range(len(cycle_indices) - 1):
-            start_idx = cycle_indices[i]
-            end_idx = cycle_indices[i + 1]
-            cycle_data = signal_for_cse[start_idx:end_idx]
-            cycles.append(cycle_data)
-        
-        # 使用严格按FonaDyn实现的CSE算法
-        cse_values = compute_cse_fonadyn_strict(
-            cycles, 
-            nharmonics=self.num_harmonics,
-            m=self.m,
-            r_factor=self.r_factor
-        )
-        
-        # 处理无穷大的情况
-        cse_values = np.where(np.isinf(cse_values), 10.0, cse_values)
-        cse_values = np.where(np.isnan(cse_values), 0.0, cse_values)
-        
-        logger.info(f"  Calculated {len(cse_values)} CSE values")
-        logger.info(f"  CSE range: {cse_values.min():.3f} - {cse_values.max():.3f}")
-        logger.info(f"  CSE mean: {np.mean(cse_values):.3f}")
-        logger.info(f"  CSE std: {np.std(cse_values):.3f}")
-        
-        return cse_values
+        return entropy_values
+
 
 
 class HRFCalculator(MetricCalculator):

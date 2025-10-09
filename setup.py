@@ -20,7 +20,7 @@ setup(
     name="voicemap-python",
     version="1.0.0",
     author="VoiceMap Python Implementation",
-    author_email="contact@voicemap.org",
+    author_email="huanchen.se@gmail.com",
     description="Complete implementation of VoiceMap algorithms for Voice Range Profile (VRP) analysis",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
