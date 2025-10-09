@@ -95,10 +95,18 @@ def plot_vrp(df, filename, output_dir):
         # 构建像素矩阵 - 按照MATLAB的1.5:1比例 (150x100)
         allPixels = np.full((150, 100), np.nan)  # 150行(dB), 100列(MIDI)
 
+        # 设置阈值，过滤低质量数据点
+        threshold = 5  # Total < 5 cycles 的数据点将被排除
+        
         for _, row in df.iterrows():
             x, y = int(row["MIDI"]), int(row["dB"])
             if x < xmin or x > xmax or y < ymin or y > ymax:
                 continue
+            
+            # 应用阈值过滤
+            if "Total" in row and row["Total"] < threshold:
+                continue
+                
             z = row[metric]
             
             # log10 转换 - 按照MATLAB逻辑
@@ -127,6 +135,12 @@ def plot_vrp(df, filename, output_dir):
         ax.set_ylabel("dB")
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
+        
+        # 在左上角添加阈值信息
+        ax.text(0.02, 0.98, f'Threshold = {threshold} cycles', 
+                transform=ax.transAxes, fontsize=10, 
+                verticalalignment='top', horizontalalignment='left',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
         
         ax.grid(True, linestyle=':', linewidth=0.5, alpha=0.7)
         

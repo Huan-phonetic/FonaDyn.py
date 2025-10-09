@@ -38,7 +38,7 @@ def load_csv_safe(filepath):
 # 2. 按歌种分类文件
 # =========================================
 def categorize_files_by_genre(folder_path):
-    """根据文件名或文件夹结构按歌种分类CSV文件"""
+    """根据文件名按歌种分类CSV文件"""
     csv_files = glob.glob(os.path.join(folder_path, "**", "*.csv"), recursive=True)
     
     # 按歌种分类的字典
@@ -46,10 +46,13 @@ def categorize_files_by_genre(folder_path):
     
     for filepath in csv_files:
         filename = os.path.basename(filepath)
-        folder_name = os.path.basename(os.path.dirname(filepath))
         
-        # 尝试从文件名或文件夹名提取歌种信息
-        # 这里需要根据你的实际文件命名规则调整
+        # 跳过合并文件
+        if "_merged.csv" in filename:
+            print(f"Skipping merged file: {filename}")
+            continue
+        
+        # 提取歌种信息
         genre = extract_genre_from_path(filepath)
         genre_files[genre].append(filepath)
     
@@ -57,45 +60,22 @@ def categorize_files_by_genre(folder_path):
 
 def extract_genre_from_path(filepath):
     """从文件路径提取歌种信息"""
-    # 获取文件夹名作为歌种
-    folder_name = os.path.basename(os.path.dirname(filepath))
-    
-    # 如果文件夹名包含歌种信息，使用它
-    if folder_name and folder_name != "singing":
-        return folder_name
-    
-    # 否则尝试从文件名提取
     filename = os.path.basename(filepath)
     
     # 常见的歌种关键词
     genre_keywords = {
-        'folk': ['folk', '民歌', '民谣', 'folk_singing'],
-        'classical': ['classical', '古典', 'classic'],
-        'pop': ['pop', '流行', 'popular'],
-        'rock': ['rock', '摇滚'],
-        'jazz': ['jazz', '爵士'],
-        'blues': ['blues', '蓝调'],
-        'country': ['country', '乡村'],
-        'opera': ['opera', '歌剧'],
-        'musical': ['musical', '音乐剧'],
-        'ballad': ['ballad', '抒情', '慢歌'],
-        'rap': ['rap', '说唱', 'hiphop'],
-        'r&b': ['r&b', 'rnb', '节奏布鲁斯']
+        'BelCanto': ['美声', 'belcanto', 'bel_canto'],
+        'FolkSongs': ['民歌', 'folk', 'folk_songs'],
+        'PopularMusic': ['通俗', 'pop', 'popular', '流行']
     }
     
     filename_lower = filename.lower()
-    for genre, keywords in genre_keywords.items():
+    for genre_name, keywords in genre_keywords.items():
         for keyword in keywords:
             if keyword in filename_lower:
-                return genre
+                return genre_name
     
-    # 如果无法识别，使用文件名的一部分作为分类
-    # 提取文件名中的数字或标识符
-    match = re.search(r'([a-zA-Z]+)', filename)
-    if match:
-        return match.group(1).lower()
-    
-    # 如果完全无法识别，使用默认分类
+    # 如果无法识别，使用默认分类
     return "unknown"
 
 # =========================================
@@ -214,10 +194,6 @@ def process_all_genres(folder_path, output_dir):
     print(f"Found {len(genre_files)} genres:")
     for genre, files in genre_files.items():
         print(f"  {genre}: {len(files)} files")
-        for file in files[:3]:  # 只显示前3个文件作为示例
-            print(f"    - {os.path.basename(file)}")
-        if len(files) > 3:
-            print(f"    ... and {len(files)-3} more files")
     
     # 处理每个歌种
     merged_files = []
@@ -245,7 +221,7 @@ def process_all_genres(folder_path, output_dir):
 if __name__ == "__main__":
     # 指定要处理的文件夹路径
     target_folder = r"H:\Python Academics\Voicemapping Folk singing\Results\singing"
-    output_folder = r"H:\Python Academics\Voicemapping Folk singing\Results\singing\merged_results"
+    output_folder = r"H:\Python Academics\Voicemapping Folk singing\Results\singing\genre_results"
     
     # 检查文件夹是否存在
     if not os.path.exists(target_folder):
@@ -254,4 +230,4 @@ if __name__ == "__main__":
     else:
         print(f"Processing folder: {target_folder}")
         process_all_genres(target_folder, output_folder)
-        print("Task3 completed!")
+        print("Task3 (Genre Only) completed!")
